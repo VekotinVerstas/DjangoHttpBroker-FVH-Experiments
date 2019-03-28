@@ -5,6 +5,7 @@ import gzip
 import logging
 import os
 import shutil
+import sys
 
 import dateutil.parser
 import pytz
@@ -69,7 +70,7 @@ def parse_args():
     parser.add_argument("-st", "--starttime", help="Start time for dump including timezone")
     parser.add_argument("-et", "--endtime", help="End time for dump including timezone")
     parser.add_argument("-f", "--filter", help="List of columns to filter", default='', nargs='?')
-    parser.add_argument("-P", "--path", help="Directory to save the file", default="/tmp", nargs='?')
+    parser.add_argument("-P", "--path", help="Directory to save the file")
     args = parser.parse_args()
     return args
 
@@ -128,26 +129,31 @@ def main():
                                           start_time.isoformat().replace(':', '').replace('-', ''),
                                           end_time.isoformat().replace(':', '').replace('-', '')
                                           )
-            filename = os.path.join(args.path, fname)
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            if args.path is None:
+                f = sys.stdout
+            else:
+                filename = os.path.join(args.path, fname)
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                f = open(filename, 'w')
             # finally, request all data for all measurements in given timeframe and dump them as CSV rows to files
-            with open(filename, 'w') as file:
-                writer = csv.DictWriter(file, names, delimiter=',', lineterminator='\n', extrasaction='ignore')
-                writer.writeheader()
-                timequery = """time >= '{}' AND time < '{}'""".format(start_time.isoformat(), end_time.isoformat())
-                query = """select * from "{}" where {} {}""".format(measure_name, timequery, args.extracondition)
-                logging.info(query)
-                # https://docs.influxdata.com/influxdb/v0.13/guides/querying_data/
-                result = client.query(query, epoch='ms')
-                for point in result:
-                    for item in point:
-                        ms = item['time'] / 1000
-                        d = datetime.datetime.utcfromtimestamp(ms)
-                        item['readable_time'] = d.isoformat('T') + 'Z'
-                        writer.writerow(item)
-            with open(filename, 'rb') as f_in:
-                with gzip.open(filename + '.gz', 'wb') as f_out:
-                    shutil.copyfileobj(f_in, f_out)
+            # with open(filename, 'w') as f:
+            writer = csv.DictWriter(f, names, delimiter=',', lineterminator='\n', extrasaction='ignore')
+            writer.writeheader()
+            timequery = """time >= '{}' AND time < '{}'""".format(start_time.isoformat(), end_time.isoformat())
+            query = """select * from "{}" where {} {}""".format(measure_name, timequery, args.extracondition)
+            logging.info(query)
+            # https://docs.influxdata.com/influxdb/v0.13/guides/querying_data/
+            result = client.query(query, epoch='ms')
+            for point in result:
+                for item in point:
+                    ms = item['time'] / 1000
+                    d = datetime.datetime.utcfromtimestamp(ms)
+                    item['readable_time'] = d.isoformat('T') + 'Z'
+                    writer.writerow(item)
+            if args.path is not None:
+                with open(filename, 'rb') as f_in:
+                    with gzip.open(filename + '.gz', 'wb') as f_out:
+                        shutil.copyfileobj(f_in, f_out)
 
 
 if __name__ == '__main__':
