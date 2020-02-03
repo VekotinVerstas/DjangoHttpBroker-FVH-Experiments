@@ -3,9 +3,14 @@ import datetime
 import json
 
 from broker.providers.decoder import DecoderProvider
+from broker.utils import create_dataline
 
 """
 Sentilo / CESVA TA120 decoder
+
+Payload  contains 2 interesting "sensor" objects: 
+- "<sensor_id>-N" (1 minute LAeq dBA average)
+- "<sensor_id>-S" (1 second values of LAeq dBA)
 
 Example PUT payload:
 
@@ -39,76 +44,52 @@ Example PUT payload:
  }
 ]}
 ```
-
 """
 
 
 def parse_sentilo_data(data):
-    measurements = []
+    """
+    Extract two data objects from source data:
+    - 1 minute average
+    - 60 values for every seconds
+    :param data: JSON object
+    :return: dict of parsed dBA values, one for 1 min average and 60 for every second.
+    """
+    # Create object for both 1 min and 1 sec data
+    parsed_data = {
+        'LAeq': {'datalines': []},
+        'LAeq1s': {'datalines': []},
+    }
     for item in data['sensors']:
+        devid = item['sensor'][0:-2]
+        parsed_data['LAeq']['devid'] = devid
+        parsed_data['LAeq1s']['devid'] = devid
         ts_str = item['observations'][0].get('timestamp')
         if ts_str is not None:
-            ts = parse(item['observations'][0]['timestamp'], dayfirst=True)
+            timestamp = parse(item['observations'][0]['timestamp'], dayfirst=True)
         else:
-            ts = datetime.datetime.utcnow()
-            print(ts.strftime("%Y-%m-%dT%H:%M:%S.%fZ data without timestamp!"))
-        dev_id = item['sensor'][0:-2]
-        # if item['sensor'].endswith('N'):
-        #     fields = {'dBA': float(item['observations'][0]['value'])}
-        #     measurement = create_influxdb_obj(dev_id, 'LAeq', fields, timestamp=ts)
-        #     measurements.append(measurement)
-        # if item['sensor'].endswith('S'):
-        #     cnt = 0
-        #     secvals = item['observations'][0]['value'].split(';')
-        #     secvals.reverse()
-        #     for val in secvals:
-        #         fields = {'dBA': float(val.split(',')[0])}
-        #         measurement = create_influxdb_obj(dev_id, 'LAeq1s', fields,
-        #                                           timestamp=(ts - datetime.timedelta(seconds=cnt)))
-        #         cnt += 1
-        #         measurements.append(measurement)
-    return measurements
+            timestamp = datetime.datetime.utcnow()
+            print(timestamp.strftime("%Y-%m-%dT%H:%M:%S.%fZ data without timestamp!"))
+        if item['sensor'].endswith('N'):
+            fields = {'dBA': float(item['observations'][0]['value'])}
+            dataline = create_dataline(timestamp, fields)
+            parsed_data['LAeq']['datalines'].append(dataline)
+        if item['sensor'].endswith('S'):
+            cnt = 0
+            secvals = item['observations'][0]['value'].split(';')
+            secvals.reverse()
+            for val in secvals:
+                fields = {'dBA': float(val.split(',')[0])}
+                new_ts = (timestamp - datetime.timedelta(seconds=cnt))
+                dataline = create_dataline(new_ts, fields)
+                parsed_data['LAeq1s']['datalines'].append(dataline)
+                cnt += 1
+    return parsed_data
 
 
 class SentiloDecoder(DecoderProvider):
     description = 'Decode Sentilo protocol payload'
 
-    def decode_payload(self, hex_payload, port, **kwargs):
-        """
-        Payload example:
-        e4050000004058460078dc46000003430050114600c03544000010410000254300003042000033430000000003000000
-
-        C Source:
-        typedef struct  {
-          int16_t batteryVoltageRaw;
-          int16_t panelVoltageRaw;
-          float mainVoltage_V;
-          float panelVoltage_VPV;
-          float panelPower_PPV;
-          float batteryCurrent_I;
-          float yieldTotal_H19;
-          float yieldToday_H20;
-          float maxPowerToday_H21;
-          float yieldYesterday_H22;
-          float maxPowerYesterday_H23;
-          int errorCode_ERR;
-          int stateOfOperation_CS;
-        } measurement ;
-
-        :param str hex_payload:
-        :param port:
-        :param kwargs:
-        :return:
-        """
-        n = 8  # Split hex_payload into 8 character long chunks
-        s = [hex_payload[i:i + n] for i in range(0, len(hex_payload), n)]
-        data = {
-            'mainVoltage_V': decode_lsb_float(s[2]),
-            'panelVoltage_VPV': decode_lsb_float(s[3]),
-            'panelPower_PPV': decode_lsb_float(s[4]),
-            'batteryCurrent_I': decode_lsb_float(s[5]),
-            'yieldTotal_H19': decode_lsb_float(s[6]),
-            'yieldToday_H20': decode_lsb_float(s[7]),
-            'maxPowerToday_H21': decode_lsb_float(s[8]),
-        }
+    def decode_payload(self, payload, port, **kwargs):
+        data = parse_sentilo_data(payload)
         return data
