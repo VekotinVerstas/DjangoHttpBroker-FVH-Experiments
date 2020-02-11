@@ -72,7 +72,18 @@ def parse_args():
     parser.add_argument("-f", "--filter", help="List of columns to filter", default='', nargs='?')
     parser.add_argument("-P", "--path", help="Directory to save the file")
     args = parser.parse_args()
+    if args.log:
+        logging.basicConfig(level=getattr(logging, args.log))
     return args
+
+
+def get_result(client, start_time, end_time, measure_name, extracondition=''):
+    timequery = """time >= '{}' AND time < '{}'""".format(start_time.isoformat(), end_time.isoformat())
+    query = """select * from "{}" where {} {}""".format(measure_name, timequery, extracondition)
+    logging.info(query)
+    # https://docs.influxdata.com/influxdb/v0.13/guides/querying_data/
+    result = client.query(query, epoch='ms')
+    return result
 
 
 def main():
@@ -80,8 +91,6 @@ def main():
     if args.database is None:
         list_databases(args)
         exit()
-    if args.log:
-        logging.basicConfig(level=getattr(logging, args.log))
     time_length = convert_to_seconds(args.timelength)
     # Parse time period's end time
     if args.endtime == 'now':
@@ -130,6 +139,7 @@ def main():
                                           end_time.isoformat().replace(':', '').replace('-', '')
                                           )
             if args.path is None:
+                filename = None
                 f = sys.stdout
             else:
                 filename = os.path.join(args.path, fname)
@@ -139,11 +149,7 @@ def main():
             # with open(filename, 'w') as f:
             writer = csv.DictWriter(f, names, delimiter=',', lineterminator='\n', extrasaction='ignore')
             writer.writeheader()
-            timequery = """time >= '{}' AND time < '{}'""".format(start_time.isoformat(), end_time.isoformat())
-            query = """select * from "{}" where {} {}""".format(measure_name, timequery, args.extracondition)
-            logging.info(query)
-            # https://docs.influxdata.com/influxdb/v0.13/guides/querying_data/
-            result = client.query(query, epoch='ms')
+            result = get_result(client, start_time, end_time, measure_name, args.extracondition)
             for point in result:
                 for item in point:
                     ms = item['time'] / 1000
