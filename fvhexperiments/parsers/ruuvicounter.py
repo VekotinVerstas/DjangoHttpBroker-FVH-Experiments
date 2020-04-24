@@ -8,7 +8,7 @@ def parse_ruuvicounter(hex_str, port=None):
     if port == '1':
         last_field = 'battery'
     elif port == '2':
-        last_field = 'rssi'
+        last_field = 'btrssi'
     else:
         last_field = 'unknown'
     parsed_data = {'tags': []}
