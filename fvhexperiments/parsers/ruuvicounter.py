@@ -12,8 +12,11 @@ def parse_ruuvicounter(hex_str, port=None):
     else:
         last_field = 'unknown'
     parsed_data = {'tags': []}
-    gw_batt_hex, hex_str = hex_str[:2], hex_str[2:]
-    parsed_data['gateway'] = {'battery': (int(gw_batt_hex, 16) * 8) + 2500}
+    gw_batt_hex, gw_ble_hex, hex_str = hex_str[:2], hex_str[2:4], hex_str[4:]
+    parsed_data['gateway'] = {
+        'battery': (int(gw_batt_hex, 16) * 8) + 2500,
+        'ble_counter': int(gw_ble_hex, 16),
+    }
     chunk_size = 4 * 2  # 4 bytes, 8 hex chars
     while len(hex_str) >= chunk_size:
         data = {}
@@ -30,15 +33,17 @@ def parse_ruuvicounter(hex_str, port=None):
 
 if __name__ == '__main__':
     import sys
+    import json
 
     try:
         print(parse_ruuvicounter(sys.argv[1], sys.argv[2]))
     except IndexError as err:
         print('Some examples:')
         for s in [
-            ('bd0164d6c711647ecc0c10e0a8000000000000000000000000000000000000000000000000000000000000000000000000', 1),
-            ('ba0164d8c711647ecc0c1078a8000000000000000000000000000000000000000000000000000000000000000000000000', 1),
+            ('bd0a0164d6c711647ecc0c10e0a8000000000000000000000000000000000000000000000000000000000000000000000000',
+             '1'),
+            ('ba0b0164d8c711647ecc0c1078a8000000000000000000000000000000000000000000000000000000000000000000000000',
+             '1'),
         ]:
-            print(parse_ruuvicounter(s[0], s[1]))
+            print(json.dumps(parse_ruuvicounter(s[0], s[1]), indent=1))
         print(f'\nUsage: {sys.argv[0]} hex_payload port\n\n')
-        raise
