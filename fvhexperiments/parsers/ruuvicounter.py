@@ -26,7 +26,10 @@ def parse_ruuvicounter(hex_str, port=None):
         rv_mac, rv_mc_hex, rv_batt_hex = chunk[:4], chunk[4:6], chunk[6:8]
         data['mac'] = rv_mac
         data['movement_counter'] = int(rv_mc_hex, 16)
-        data[last_field] = ((int(rv_batt_hex, 16) * 8) + 1500)
+        if port == '1':
+            data[last_field] = ((int(rv_batt_hex, 16) * 8) + 1500)
+        elif port == '2':
+            data[last_field] = -int(rv_batt_hex, 16)
         parsed_data['tags'].append(data)
     return parsed_data
 
